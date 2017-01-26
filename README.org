@@ -78,7 +78,6 @@
 
     function is directly called (as wrapped shell command)
     
-
     #+BEGIN_SRC python
     @dap2.rule(inputs = ['input.txt'],
               outputs = ['output.txt'],
