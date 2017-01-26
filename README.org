@@ -1,0 +1,263 @@
+* dap2 - (yet another) data analysis pipeline
+
+- a data processin pipeline is a DAG of processes linking input files
+  to ouptput files
+
+  input1, input2 ->  processA  -> output1, output2 
+
+
+- each process executes shell commands
+
+
+** Why not X?
+
+- Why not /make/?
+
+  - does not support cluster well
+  - sick of creating rp databases
+
+
+- Why not /Snakemake/?
+
+  - does (did) not scale well to 100 000s of jobs
+  - not designed as a library
+  - defines new syntax (instead of using decorators), 
+
+
+** DAG creation
+
+
+- specification of data flow by rules
+
+  to get output1, apply processA to input1 and input2
+
+
+- inputs and outputs of rules are specified using pattern matching
+
+  #+BEGIN_SRC python
+  ['input1.txt', 'input2.txt']
+  ['{path}/{PN}.txt', '{path}/{PN}.bam']
+  dict(text = '{path}/{PN}.txt', bam = '{path}/{PN}.bam')
+  #+END_SRC
+ 
+
+- if rule matches, the process is created (parameterized) by a function
+
+  #+BEGIN_SRC python
+  @dap2.rule(inputs = ['{path}/{PN}.txt'],
+            outputs = ['{path}/{PN}.out'],
+            kind = 'process')
+  def make_process(inputs, outputs, **wildcards):
+      data = lookup_some_data(wildcards['PN'])
+      cmd = make_cmd(data)
+      return dap2.ProcessNode(cmd,
+                             parents = inputs,
+                             children = outputs)  
+  #+END_SRC
+
+
+  This happens during DAG creation, not during execution on workers.
+  Function can access database, do lookups, etc.
+
+
+- for user convenience, 
+
+  - 'shell' rule
+
+    function returns shell command as string
+
+    #+BEGIN_SRC python
+    @dap2.rule(inputs = ['input.txt'],
+               outputs = ['output.txt'],
+               kind = 'shell')
+    def move(inputs, outputs, **wildcards):
+        return 'mv %s %s' % (inputs[0], outputs[0])
+    #+END_SRC
+
+
+  - 'python' rule
+
+    function is directly called (as wrapped shell command)
+    
+
+    #+BEGIN_SRC python
+    @dap2.rule(inputs = ['input.txt'],
+              outputs = ['output.txt'],
+              kind = 'python')
+    def copy_file(inputs, outputs, **wildcards):
+        with open(inputs[0]) as infh, open(outputs[0]) as outfh:
+            for line in infh:
+                print >> outfh, line.strip()
+    #+END_SRC
+
+    
+    :HOW_TO_CALL_PYTHON_FUNC_FROM_COMMAND_LINE:
+
+    To call function func in module.py, do
+    
+    #+BEGIN_SRC sh
+    python -E -c "import module; module.func(*args, **kw)"
+    #+END_SRC
+    
+    Command line can be created using
+
+    #+BEGIN_SRC python
+    dap2.shell_command(myfunc, arg1, arg2, kw1 = val1)
+    #+END_SRC
+
+    :END:
+    
+
+
+** Dependency resolution and scheduling 
+
+- given desired output files (targets), find processes needed to
+  create them from existing files using DAG
+
+  - if file in targets does not exist
+    - find rule to create it
+    - add process to processes
+    - add input files to targets
+
+
+- execute processes, taking care of dependencies between them
+
+- in case of process error, remove process output files
+
+
+  #+BEGIN_SRC python
+  dap2.createTargets(['output.txt', 'mypath/AACSUCR.out'],
+                    scheduler = dap2.LocalScheduler(),
+                    n_processes = 4)
+  #+END_SRC
+
+
+*** Local scheduler
+
+- uses thread pool to run shell subprocesses
+
+- can be used as scheduler within process running on a cluster machine (instead of GATK queue, for example)
+
+  #+BEGIN_SRC python
+  l = dap2.LocalScheduler(processes, n_processes = 4, nfs_timeout = none, continue_on_error = False)
+  l.run()
+  #+END_SRC
+
+
+*** SLURM scheduler
+
+- uses SLURM cluster
+
+  - submit jobs using /sbatch/
+  - check for status periodically using /sacct/
+
+  #+BEGIN_SRC python
+  s = dap2.SlurmScheduler(processes, n_processes = 100, nfs_timeout = 30, log_dir = 'logs', interval = 30,
+                          jobParams = {}, continue_on_error = True, dp = 'provenance.db')
+  s.run()
+  #+END_SRC
+
+
+- SLURM job params can be passed from rules
+
+  anything in slurmParams passed to /sbatch/  
+
+  #+BEGIN_SRC python
+  @dap2.rule(inputs = ['input.txt'],
+            outputs = ['output.txt'],
+            kind = 'python',
+            slurmParams = {'mem':'4g', 'time':'1:00:00', 'job-name':'copy_file'})
+  def copy_file(inputs, outputs, **wildcards):
+      with open(inputs[0]) as infh, open(outputs[0]) as outfh:
+          for line in infh:
+              print >> outfh, line.strip()
+   #+END_SRC
+
+
+
+** Provenance
+
+- can trace back how any output file was created
+
+- implemented as SQLite3 database with tables
+
+  - files
+
+    | Column     | Description           |
+    |------------+-----------------------|
+    | id         | PK                    |
+    | path       | absolute path to file |
+    | process_id | FK processes.id       |
+  
+
+  - processes
+  
+    | Column     | Description                         |
+    |------------+-------------------------------------|
+    | id         | PK                                  |
+    | cmd        | shell command                       |
+    | name       |                                     |
+    | params     | slurmParams, slurmStatus, ..        |
+    | job_id     | SLURM job id  (for /sacct/ queries) |
+    | status     | status                              |
+    | exit_code  | SLURM exit code                     |
+    | start_time |                                     |
+    | end_time   |                                     |
+
+
+  - process_parents, process_children
+
+    | Column     | Description  |
+    |------------+--------------|
+    | process_id | processes.id |
+    | file_id    | files.id     |
+
+
+** Examples
+
+*** as Makefile replacement
+
+    command line interface available as function dap2.cli
+
+    #+BEGIN_SRC python
+      def cli():
+          """
+          command line interface
+          """
+          import argparse
+          parser = argparse.ArgumentParser(description='Data analysis pipeline')
+          parser.add_argument('-p', '--numproc', default=1, help='Number of processes to run simultaneously')
+          parser.add_argument('-l', '--logdir', default = 'logs', help='Directory for cluster logs (.out and .err files)')
+          parser.add_argument('-c', '--cluster', action='store_true', help='Execute processes on cluster')
+          parser.add_argument('-j', '--jobparams', default='', help='Cluster parameters, comma separated option=value pairs, passed to scheduler')
+          parser.add_argument('-n', action='store_true', help='Do not run processes. Only print them.')
+          parser.add_argument('targets', nargs='+', help='files to be created')
+          args = parser.parse_args()
+          print args
+          processes = get_required_processes([File(f) for f in args.targets])
+
+          if args.n:
+              for process in processes:
+                  print process.name
+          else:
+              if args.cluster:
+                  try:
+                      jobParams = {} if args.jobparams == '' else dict([tuple(j.split('=')) for j in args.jobparams.split(',')])
+                  except:
+                      logger.error('Malformed jobparams: %s' % args.jobparams)
+                      sys.exit(2) 
+                  s = SlurmScheduler(processes, n_processes = int(args.numproc), log_dir=args.logdir, jobParams=jobParams)
+              else:
+                  s = LocalScheduler(processes, n_processes = int(args.numproc))        
+              s.run()
+    #+END_SRC
+
+
+
+    file:/odinn/users/florian/projects/TelomereLength/make.py
+
+
+*** as library
+
+    file:/odinn/users/florian/projects/VariantCalling/gatk_pooled.py 
+
