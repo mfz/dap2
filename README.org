@@ -88,10 +88,8 @@
             for line in infh:
                 print >> outfh, line.strip()
     #+END_SRC
-
     
     :HOW_TO_CALL_PYTHON_FUNC_FROM_COMMAND_LINE:
-
     Note: To call function func in module.py, do
     
     #+BEGIN_SRC sh
@@ -103,7 +101,6 @@
     #+BEGIN_SRC python
     dap2.shell_command(myfunc, arg1, arg2, kw1 = val1)
     #+END_SRC
-
     :END:
     
 
@@ -188,7 +185,6 @@
     | path       | absolute path to file |
     | process_id | FK processes.id       |
   
-
   - processes
   
     | Column     | Description                         |
@@ -202,7 +198,6 @@
     | exit_code  | SLURM exit code                     |
     | start_time |                                     |
     | end_time   |                                     |
-
 
   - process_parents, process_children
 
