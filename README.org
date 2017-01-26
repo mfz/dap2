@@ -74,7 +74,6 @@
         return 'mv %s %s' % (inputs[0], outputs[0])
     #+END_SRC
 
-
   - 'python' rule
 
     function is directly called (as wrapped shell command)
@@ -93,13 +92,13 @@
     
     :HOW_TO_CALL_PYTHON_FUNC_FROM_COMMAND_LINE:
 
-    To call function func in module.py, do
+    Note: To call function func in module.py, do
     
     #+BEGIN_SRC sh
     python -E -c "import module; module.func(*args, **kw)"
     #+END_SRC
     
-    Command line can be created using
+    Such a command line can be created using dap2.shell_command:
 
     #+BEGIN_SRC python
     dap2.shell_command(myfunc, arg1, arg2, kw1 = val1)

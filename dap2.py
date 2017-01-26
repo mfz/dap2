@@ -11,11 +11,11 @@
 # fz August 2014
 #
 
-# CHANGES:
-#
-# for rules, inputs and outputs can be dicts
-# for rules, kind can be 'python', 'shell', 'process' 
-# inputs and outputs always passed to decorated function
+## CHANGES:
+##
+## for rules, inputs and outputs can be dicts
+## for rules, kind can be 'python', 'shell', 'process' 
+## inputs and outputs always passed to decorated function
 
 
 import os
