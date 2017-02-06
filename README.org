@@ -9,37 +9,90 @@
 - each process executes shell commands
 
 
-** Why not X?
+** Why yet another data analysis pipeline?
 
-- Why not /make/?
+- /make/
 
   - does not support cluster well
   - sick of creating rp databases
 
 
-- Why not /Snakemake/?
+- /snakemake/
 
-  - does (did) not scale well to 100 000s of jobs
+  - does (did) not scale well to 1000s of jobs
   - not designed as a library
   - defines new syntax (instead of using decorators), 
 
 
+** What does dap2 provide?
+
+- important /make/ functionality
+  - but better parameterization of rules
+  - supports local and cluster jobs
+
+- provenance
+  - can trace back all commands used to create any output file
+  
+- can be used as library to submit shell commands or python functions from python
+
+- scales to 100, 000s of jobs
+  
+- single python file with approx 1,000 lines (code + documentation)
+
+
 ** DAG creation
 
-
-- specification of data flow by rules
-
-  to get output1, apply processA to input1 and input2
-
-
-- inputs and outputs of rules are specified using pattern matching
+- implemented as (bipartite) DAG with Process and File nodes
 
   #+BEGIN_SRC python
-  ['input1.txt', 'input2.txt']
-  ['{path}/{PN}.txt', '{path}/{PN}.bam']
-  dict(text = '{path}/{PN}.txt', bam = '{path}/{PN}.bam')
+    class ProcessNode(object):
+    
+        def __init__(self, cmd, parents = [], children = [], name = 'anonymous', **params):
+            """
+            create ProcessNode
+            parents and children can be lists or dicts
+            """
+            self.cmd = cmd
+            self.parents = [File(p) for p in (parents.values() if type(parents)==dict else parents)]   # input file names
+            for parent in self.parents:
+                parent.children.append(self)
+            self.children = [File(c) for c in (children.values() if type(children)==dict else children)]  # output file names
+            # register that this TaskNode creates its children
+            for child in self.children:
+                assert child.parents == [], "Child can only have one TaskNode as parent"
+                child.parents = [self]
+            self.name = name
+            self.params = params # whatever, e.g. slurmParams 
+            
+        def exists(self):
+            "return whether all children exist"
+            return all([fn.exists() for fn in self.children])
+
+        def delete_results(self):
+            "delete files corresponding to node's children"
+            for fn in self.children:
+                fn.delete()
+
   #+END_SRC
  
+  File nodes are created automatically when ProcessNode instantiated
+
+
+- specification of data flow by rules using decorator syntax
+
+- all rules are specified using relative paths
+
+- pattern matching uses /parse/ library, supports format string
+  syntax, e.g. '{name[:format_spec]}'
+
+  #+BEGIN_SRC python
+  inputs = ['input1.txt', 'input2.txt']
+  inputs = ['{path}/{PN}.txt', '{path}/{PN}.bam']
+  inputs = dict(text = '{path}/{PN}_p{pvalue:f}_d{distance:d}.txt', 
+                bam = '{path}/{PN}.bam')
+  #+END_SRC
+ 
+- from all matching rules, the one with fewest patterns is selected 
 
 - if rule matches, the process is created (parameterized) by a function
 
@@ -57,7 +110,8 @@
 
 
   This happens during DAG creation, not during execution on workers.
-  Function can access database, do lookups, etc.
+  Function can access database, compute cluster requirements based on
+  input files, etc.
 
 
 - for user convenience, 
@@ -95,7 +149,11 @@
     python -E -c "import module; module.func(*args, **kw)"
     #+END_SRC
     
-    Such a command line can be created using dap2.shell_command:
+    I.e. the module needs to be accessible from python.
+
+    Such a command line can be created using
+    /dap2.shell_command/. Given a function, it figures out which
+    python module to load and creates the corresponding shell command:
 
     #+BEGIN_SRC python
     dap2.shell_command(myfunc, arg1, arg2, kw1 = val1)
@@ -110,7 +168,7 @@
   create them from existing files using DAG
 
   - if file in targets does not exist
-    - find rule to create it
+    - find process to create it (using DAG or rules)
     - add process to processes
     - add input files to targets
 
@@ -131,10 +189,11 @@
 
 - uses thread pool to run shell subprocesses
 
-- can be used as scheduler within process running on a cluster machine (instead of GATK queue, for example)
+- can be used as scheduler within process running on a cluster machine
+  (instead of GATK queue, for example)
 
   #+BEGIN_SRC python
-  l = dap2.LocalScheduler(processes, n_processes = 4, nfs_timeout = none, continue_on_error = False)
+  l = dap2.LocalScheduler(processes, n_processes = 4, nfs_timeout = None, continue_on_error = False)
   l.run()
   #+END_SRC
 
@@ -155,7 +214,7 @@
 
 - SLURM job params can be passed from rules
 
-  anything in slurmParams passed to /sbatch/  
+  anything in /slurmParams/ passed to /sbatch/  
 
   #+BEGIN_SRC python
   @dap2.rule(inputs = ['input.txt'],
@@ -166,7 +225,7 @@
       with open(inputs[0]) as infh, open(outputs[0]) as outfh:
           for line in infh:
               print >> outfh, line.strip()
-   #+END_SRC
+  #+END_SRC
 
 
 
@@ -246,11 +305,34 @@
     #+END_SRC
 
 
+    Illustrative example:
 
-    file:/odinn/users/florian/projects/TelomereLength/make.py
+    #+BEGIN_SRC python
+      import dap2
+      import os
+
+      @dap2.rule(['{path}/hello{name}.txt'],
+                 kind = 'python')
+      def hello(inputs, outputs, **wildcards):
+          with open(os.path.join(wildcards['path'], 
+                                 'hello%s.txt' % wildcards['name']), 'w') as fh:
+              print >> fh, 'Hello %s' % wildcards['name']
+
+
+      if __name__ == '__main__':
+          dap2.cli()
+    #+END_SRC
+
+    Note: target needs to specify '{path}' component here, 'helloJon.txt'
+    will not work.
+
+
+    Realistic use case:
+
+    https://lsource2.decode.is/florian/TrueMeth/blob/master/truemeth.py
 
 
 *** as library
 
-    file:/odinn/users/florian/projects/VariantCalling/gatk_pooled.py 
+    https://lsource2.decode.is/stat/genotyper_comparison/blob/master/gatk_pooled.py
 

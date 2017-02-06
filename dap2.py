@@ -76,7 +76,7 @@ class ProcessNode(object):
         self.params = params
             
     def exists(self):
-        "return whether all children exits"
+        "return whether all children exist"
         return all([fn.exists() for fn in self.children])
 
     def delete_results(self):
