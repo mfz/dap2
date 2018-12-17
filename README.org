@@ -228,6 +228,14 @@
   #+END_SRC
 
 
+*** rp file
+
+- creates rp file for submission with rpsubmit
+
+  #+BEGIN_SRC python
+  dap2.makeRpFile(targetFiles, filename)
+  #+END_SRC
+
 
 ** Provenance
 

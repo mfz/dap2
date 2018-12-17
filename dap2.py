@@ -320,7 +320,9 @@ def match_rules(rule_book, path):
         # allow dict and lis for outputs in rule specification
         patterns = (rule['outputs'].values() if type(rule['outputs']) == dict else rule['outputs'])
         for pattern in patterns:
-            m = parse.parse(os.path.abspath(pattern), path)
+            #m = parse.parse(os.path.abspath(pattern), path)
+            #20181205 removed os.path.abspath. Requires using {path} in rules
+            m = parse.parse(pattern, path)
             if m is not None:
                 res = dict(match = m.named)
                 res.update(rule)
@@ -637,7 +639,7 @@ def wait(jobids, interval = 1):
         s = status(jobids)
         done = [js for js in s.values()
                 if js['State'] in JOB_STATUS_DONE or js['State'].startswith('CANCELLED')]
-        # take care of 'CANCELLED by xxx'
+        # take care of 'CANCELLED by xxx' due to out of memory etc.
         if len(done) > 0:
             return done
         time.sleep(interval)
@@ -1026,7 +1028,50 @@ def require(filenames, scheduler = LocalScheduler, **scheduler_options):
     s.run()
 
 createTargets = require
+
+
+def makeRpFile(filenames, rpFile):
+    """
+    create rp file
+    """
     
+    tasks = get_required_processes([File(f) for f in filenames])
+    # create internal name for dependency declarations
+    for idx, task in enumerate(tasks):
+        task.name = 'rpjob%d' % idx
+
+    with open(rpFile, 'w') as outfh:
+        for task in tasks:
+            # we only want to report ProcessNodes in tasks
+            # for efficiency we do this by looking at name,
+            # and hope we do not have other tasks starting with 'rpjobs'
+            parent_tasks = [p.name  for f in task.parents for p in f.parents if p.name.startswith('rpjob')]
+            child_tasks = [c.name  for f in task.children for c in f.children if c.name.startswith('rpjob')]
+            # get parameters for rp
+            rpParams = {'-n':task.name}
+
+            if len(parent_tasks) > 0 or len(child_tasks) > 0:
+                rpParams['-p'] = '%s#%s' % (','.join(parent_tasks), ','.join(child_tasks))
+
+            slurmParams = task.params.get('slurmParams', {})
+            if 'mem' in slurmParams:
+                rpParams['-m'] = slurmParams['mem']
+            if 'cpus-per-task' in slurmParams:
+                rpParams['-c'] = slurmParams['cpus-per-taks']
+            if 'time' in slurmParams:
+                rpParams['-w'] = slurmParams['time']
+            if 'tmp' in slurmParams:
+                rpParams['-t'] = slurmParams['tmp']
+            if 'job-name' in slurmParams:
+                rpParams['-N'] = slurmParams['job-name']
+            extraParams = ','.join(['%s=%s' % (k, str(slurmParams[k])) for k in slurmParams.keys()
+                                    if k not in ['mem', 'cpus-per-task', 'time', 'tmp', 'job-name']])
+            if extraParams != '':
+                rpParams['-l'] = extraParams
+
+            print >> outfh ,'%s ! %s' % (' '.join(('%s %s' % (k, v) for k, v in rpParams.items())), task.cmd)
+
+        
 def shell_iter(cmd):
     "execute cmd in shell and return output iterator"
     pipefail = 'set -e; set -o pipefail;'
