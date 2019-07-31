@@ -470,7 +470,7 @@ class LocalScheduler(Scheduler):
 
     def run(self):
         "run scheduled processNodes"
-        import futures # backport of concurrency.futures to Python2.x; install 'pip install futures'
+        import concurrent.futures as futures # backport of concurrency.futures to Python2.x; install 'pip install concurrent'
         with futures.ThreadPoolExecutor(self.n_processes) as executor:
             completedProcessNodes = set()
             readyProcessNodes = set([processNode for processNode in self.processNodeList
@@ -875,10 +875,16 @@ def cli():
     parser.add_argument('-l', '--logdir', default = 'logs', help='Directory for cluster logs (.out and .err files)')
     parser.add_argument('-c', '--cluster', action='store_true', help='Execute processes on cluster')
     parser.add_argument('-j', '--jobparams', default='', help='Cluster parameters, comma separated option=value pairs, passed to scheduler')
+    parser.add_argument('-r', '--rp', default=None, help='Create rp file')
     parser.add_argument('-n', action='store_true', help='Do not run processes. Only print them.')
     parser.add_argument('targets', nargs='+', help='files to be created')
     args = parser.parse_args()
     print args
+
+    if args.rp is not None:
+        makeRpFile(args.targets, args.rp)
+        exit(0)
+    
     processes = get_required_processes([File(f) for f in args.targets])
 
     if args.n:
@@ -1057,7 +1063,7 @@ def makeRpFile(filenames, rpFile):
             if 'mem' in slurmParams:
                 rpParams['-m'] = slurmParams['mem']
             if 'cpus-per-task' in slurmParams:
-                rpParams['-c'] = slurmParams['cpus-per-taks']
+                rpParams['-c'] = slurmParams['cpus-per-task']
             if 'time' in slurmParams:
                 rpParams['-w'] = slurmParams['time']
             if 'tmp' in slurmParams:
@@ -1084,9 +1090,9 @@ def shell_iter(cmd):
     if retcode:
         raise subprocess.CalledProcessError(retcode, cmd)
     
-def shell(cmd):
+def shell(cmd, pipefail = 'set -e; set -o pipefail;'):
     "execute cmd in shell and return output"
-    pipefail = 'set -e; set -o pipefail;'
+    #pipefail = 'set -e; set -o pipefail;'
     return subprocess.check_output(pipefail + cmd, shell=True, close_fds=True,
                                    executable=os.environ.get('SHELL', None))
     
