@@ -25,7 +25,7 @@ import tempfile
 import subprocess
 import time
 import parse  # parse library. Install using 'pip install parse'
-
+import shutil
 
     
 import logging
@@ -207,13 +207,23 @@ class FileNode(object):
         return self._exists
 
     def delete(self):
-        "delete underlying file"
+        "delete underlying file or directory"
         try:
-            os.unlink(self.path)
-            self._exists = False
+            if os.path.isfile(self.path):
+                os.unlink(self.path)
+                self._exists = False
+            elif os.path.isdir(self.path):
+                shutil.rmtree(self.path)
+                self._exists = False
         except:
             pass
-            
+
+
+
+
+
+
+        
     def __repr__(self):
         return "<FileNode: %s>" % self.path
 
