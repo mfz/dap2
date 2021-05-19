@@ -335,12 +335,5 @@
     will not work.
 
 
-    Realistic use case:
-
-    https://lsource2.decode.is/florian/TrueMeth/blob/master/truemeth.py
-
-
-*** as library
-
-    https://lsource2.decode.is/stat/genotyper_comparison/blob/master/gatk_pooled.py
+ 
 
