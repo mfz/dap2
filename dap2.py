@@ -64,10 +64,10 @@ class ProcessNode(object):
         parents and children can be lists or dicts
         """
         self.cmd = cmd
-        self.parents = [File(p) for p in (parents.values() if type(parents)==dict else parents)]   # input file names
+        self.parents = [File(p) for p in (list(parents.values()) if type(parents)==dict else parents)]   # input file names
         for parent in self.parents:
             parent.children.append(self)
-        self.children = [File(c) for c in (children.values() if type(children)==dict else children)]  # output file names
+        self.children = [File(c) for c in (list(children.values()) if type(children)==dict else children)]  # output file names
         # register that this TaskNode creates its children
         for child in self.children:
             assert child.parents == [], "Child can only have one TaskNode as parent"
@@ -160,7 +160,7 @@ def memoize(func):
     """
     cache = {}
     def wrapper(*args):
-        if not cache.has_key(args):
+        if args not in cache:
             ret = cache[args] = func(*args)
         else:
             ret = cache[args]
@@ -328,7 +328,7 @@ def match_rules(rule_book, path):
     matches = []
     for rule in rule_book:
         # allow dict and lis for outputs in rule specification
-        patterns = (rule['outputs'].values() if type(rule['outputs']) == dict else rule['outputs'])
+        patterns = (list(rule['outputs'].values()) if type(rule['outputs']) == dict else rule['outputs'])
         for pattern in patterns:
             #m = parse.parse(os.path.abspath(pattern), path)
             #20181205 removed os.path.abspath. Requires using {path} in rules
@@ -388,15 +388,15 @@ def get_required_processes(nodes):
                 # hence we remove them before formatting
 
                 if type(match['inputs']) == dict:
-                    infiles = dict([(k,re.sub(':.}', '}',v).format(**match['match'])) for k,v in match['inputs'].items()])
-                    parents = infiles.values()
+                    infiles = dict([(k,re.sub(':.}', '}',v).format(**match['match'])) for k,v in list(match['inputs'].items())])
+                    parents = list(infiles.values())
                 else:
                     infiles = [re.sub(':.}', '}',v).format(**match['match']) for v in match['inputs']]
                     parents = infiles
                     
                 if type(match['outputs']) == dict:
-                    outfiles = dict([(k,re.sub(':.}', '}',v).format(**match['match'])) for k,v in match['outputs'].items()])
-                    children = outfiles.values()
+                    outfiles = dict([(k,re.sub(':.}', '}',v).format(**match['match'])) for k,v in list(match['outputs'].items())])
+                    children = list(outfiles.values())
                 else:
                     outfiles = [re.sub(':.}', '}',v).format(**match['match']) for v in match['outputs']]
                     children = outfiles                
@@ -626,7 +626,7 @@ def status(jobids):
     header = out[0].strip().split('|')
     for row in out[1:]:
         if row.strip() != '':
-            rowdict = dict(zip(header, row.strip().split('|')))
+            rowdict = dict(list(zip(header, row.strip().split('|'))))
             if not '.' in rowdict['JobID']:
                 res[rowdict['JobID']] = rowdict
     return res
@@ -647,7 +647,7 @@ def wait(jobids, interval = 1):
     """
     while True:
         s = status(jobids)
-        done = [js for js in s.values()
+        done = [js for js in list(s.values())
                 if js['State'] in JOB_STATUS_DONE or js['State'].startswith('CANCELLED')]
         # take care of 'CANCELLED by xxx' due to out of memory etc.
         if len(done) > 0:
@@ -663,7 +663,7 @@ def cancel(jobid, signal='INT'):
 
 def submit(cmd, **options):
     script = ['#!/bin/bash']
-    for key, value in options.items():
+    for key, value in list(options.items()):
         script.append('#SBATCH --%s=%s' % (key, value))
     #script.append('srun %s' % cmd)
     script.append(cmd)
@@ -762,7 +762,7 @@ class SlurmScheduler(object):
         
         while len(self.jobid2processNode) > 0:
             time.sleep(self.interval)
-            done_status = wait(self.jobid2processNode.keys(), interval = self.interval)
+            done_status = wait(list(self.jobid2processNode.keys()), interval = self.interval)
             complete = []
             for ds in done_status:
                 processNode = self.jobid2processNode[ds['JobID']]
@@ -811,7 +811,7 @@ class SlurmScheduler(object):
             readied = [processNode for processNode in dependent_ProcessNodes
                        if all((fn.exists()
                                and (fn.parents == [] # founder file
-                                    or (not fn.parents[0].params.has_key('slurmStatus')) # not registered for running (e.g. created by older run)
+                                    or ('slurmStatus' not in fn.parents[0].params) # not registered for running (e.g. created by older run)
                                     or fn.parents[0].params['slurmStatus']['Status'] == 'COMPLETED') # registered and completed
                                for fn in processNode.parents))]
             logger.debug("Readied process nodes: %s" % readied)
@@ -844,9 +844,9 @@ class SlurmScheduler(object):
             counts[processNode.params['slurmStatus']['Status']] += 1
         states = ['WAITING','READY','SUBMITTED','COMPLETED','FAILED']
 
-        print '-'*79
-        print '%35s %10s %10s %10s %10s' % tuple(states)
-        print '%24s %10d %10d %10d %10d %10d' % tuple([time.asctime()] + [counts[state] for state in states])
+        print('-'*79)
+        print('%35s %10s %10s %10s %10s' % tuple(states))
+        print('%24s %10d %10d %10d %10d %10d' % tuple([time.asctime()] + [counts[state] for state in states]))
 
     def dump(self, filename):
         "dump processes to filename"
@@ -858,7 +858,7 @@ class SlurmScheduler(object):
                         parents = [f.path for f in p.parents],
                         children = [f.path for f in p.children],
                         params = p.params)
-                print >> fh, json.dumps(tmp)
+                print(json.dumps(tmp), file=fh)
             
 
 #
@@ -889,7 +889,7 @@ def cli():
     parser.add_argument('-n', action='store_true', help='Do not run processes. Only print them.')
     parser.add_argument('targets', nargs='+', help='files to be created')
     args = parser.parse_args()
-    print args
+    print(args)
 
     if args.rp is not None:
         makeRpFile(args.targets, args.rp)
@@ -899,7 +899,7 @@ def cli():
 
     if args.n:
         for process in processes:
-            print process.name
+            print(process.name)
     else:
         if args.cluster:
             try:
@@ -1080,12 +1080,12 @@ def makeRpFile(filenames, rpFile):
                 rpParams['-t'] = slurmParams['tmp']
             if 'job-name' in slurmParams:
                 rpParams['-N'] = slurmParams['job-name']
-            extraParams = ','.join(['%s=%s' % (k, str(slurmParams[k])) for k in slurmParams.keys()
+            extraParams = ','.join(['%s=%s' % (k, str(slurmParams[k])) for k in list(slurmParams.keys())
                                     if k not in ['mem', 'cpus-per-task', 'time', 'tmp', 'job-name']])
             if extraParams != '':
                 rpParams['-l'] = extraParams
 
-            print >> outfh ,'%s ! %s' % (' '.join(('%s %s' % (k, v) for k, v in rpParams.items())), task.cmd)
+            print('%s ! %s' % (' '.join(('%s %s' % (k, v) for k, v in list(rpParams.items()))), task.cmd), file=outfh)
 
         
 def shell_iter(cmd):
